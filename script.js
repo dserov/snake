@@ -8,11 +8,7 @@ const CELL_SIZE = 15;
 let intervalGameHandler;
 
 class Field {
-    /**
-     * @var #_fullCellList Point[]
-     */
-    #_fullCellList;
-    constructor(canvasId) {
+    constructor(canvasId, scoreId) {
         let _this = this;
         _this.canvas = document.getElementById(canvasId);
         _this.canvas.height = FIELD_HEIGHT * CELL_SIZE;
@@ -21,6 +17,12 @@ class Field {
         _this.width = FIELD_WIDTH;
         _this.height = FIELD_HEIGHT;
         _this.cell_size = CELL_SIZE;
+        _this.scoreElement = document.getElementById(scoreId);
+    }
+
+    updateScore() {
+        let score = parseInt(this.scoreElement.innerText);
+        this.scoreElement.innerText = ++score;
     }
 
     render() {
@@ -46,15 +48,27 @@ class Field {
     }
 
     /**
+     * Вывод змейки
      *
      * @param snakeCoords Point[]
      */
     renderSnake(snakeCoords) {
+        this.context.fillStyle = "rgb(0,0,0)";
         for (let point of snakeCoords) {
             let x = point.x * this.cell_size;
             let y = point.y * this.cell_size;
             this.context.fillRect(x, y, this.cell_size, this.cell_size);
         }
+    }
+
+    /**
+     * Вывод кролика на поле
+     *
+     * @param rabbitCoords Point
+     */
+    renderRabbit(rabbitCoords) {
+        this.context.fillStyle = "rgba(0,200,0,0.8)";
+        this.context.fillRect(rabbitCoords.x * this.cell_size, rabbitCoords.y * this.cell_size, this.cell_size, this.cell_size);
     }
 }
 
@@ -106,30 +120,53 @@ class Rabbit {
     /**
      * @var Point
      */
-    #_position;
+    #_coords;
 
     constructor() {
-        this.#_position = new Point();
+        this.#_coords = null;
     }
 
-    get position() {
-        return this.#_position;
-    }
-
-    set position(value) {
-        this.#_position = value;
+    get coords() {
+        return this.#_coords;
     }
 
     /**
      * @param snakeCoords Point[]
      */
     createNew(snakeCoords) {
-        let new_coords = new Point(getRandomInteger(0, FIELD_WIDTH), getRandomInteger(0, FIELD_HEIGHT));
-
-        // проверка, что не попали в змейку
-        if (snakeCoords.indexOf(new_coords) !== -1) {
-
+        // создаем массив всех ячеек
+        let fieldCells = [];
+        for (let i = 0; i < FIELD_WIDTH; i++) {
+            for (let j = 0; j < FIELD_HEIGHT; j++) {
+                fieldCells.push(new Point(i, j));
+            }
         }
+
+        // вычтем координаты ячеек змейки
+        let freeCells = fieldCells.filter(
+            cell => snakeCoords.filter(
+                snakeCell => snakeCell.isEquals(cell)
+            ).length === 0
+        );
+
+        // теперь выберем ячейку в пределах свободной
+        let randomIndex = getRandomInteger(0, freeCells.length);
+        this.#_coords = freeCells[randomIndex];
+    }
+
+    /**
+     * Существует ли кролик?
+     * @return {boolean}
+     */
+    isRabbitCreated() {
+        return !!this.#_coords;
+    }
+
+    /**
+     * Уничтожаем кролика
+     */
+    destroyRabbit() {
+        this.#_coords = null;
     }
 }
 
@@ -153,34 +190,36 @@ class Snake {
     /**
      * Вычисляем новое положение головы змейки
      *
-     * @param dX integer
-     * @param dY integer
+     * @param keyboard Keyboard
+     * @param rabbit Rabbit
      * @throws Error
      */
-    updateHeadPosition(dX, dY) {
+    updateHeadPosition(keyboard, rabbit) {
         // достанем "голову" (всегда ячейка с индексом 0)
         let head = this.#_coords[0];
 
         // вычислим новые координаты
-        let newHeadCoords = new Point(head.x + dX, head.y + dY);
+        let newHeadCoords = new Point(head.x + keyboard.dX, head.y + keyboard.dY);
 
         // проверка вылезания за пределы поля
         newHeadCoords = this.checkAndCorrectIfHeadOutOfField(newHeadCoords);
 
-        // проверка, что змейка на себя не наехала
-        if (this.checkIfSnakeTouchItSelf(newHeadCoords)) {
+        // проверка, что змейка на себя не наехала. пока игра не началась - смещений нет
+        if (!(keyboard.dX === 0 && keyboard.dY === 0) && this.checkIfSnakeTouchItSelf(newHeadCoords)) {
             throw Error('Змейка попала в себя!');
         }
 
         // поместим в массив тела змейки
         this.#_coords.unshift(newHeadCoords);
 
-        // проверим, что не попали в кролика
-
-        // попали - змейка вырастет
-
-        // не попали - хвост подожмем
-        this.#_coords.pop();
+        // проверим попадание в кролика
+        if (!(keyboard.dX === 0 && keyboard.dY === 0) && newHeadCoords.isEquals(rabbit.coords)) {
+            // попали - змейка вырастет
+            rabbit.destroyRabbit();
+        } else {
+            // не попали - хвост подожмем
+            this.#_coords.pop();
+        }
     }
 
     /**
@@ -204,7 +243,9 @@ class Snake {
      * @return {boolean}
      */
     checkIfSnakeTouchItSelf(head) {
-        return (this.#_coords.indexOf(head) != -1);
+        return this.#_coords.filter(
+            snakeCell => head.isEquals(snakeCell)
+        ).length > 0;
     }
 }
 
@@ -239,25 +280,38 @@ class Point {
     set y(value) {
         this.#_y = value;
     }
+
+    /**
+     * Сравнение двух точек
+     *
+     * @param obj Point
+     * @return {boolean}
+     */
+    isEquals(obj) {
+        if (obj.x !== this.x) return false;
+        if (obj.y !== this.y) return false;
+        return true;
+    }
 }
 
-let field = new Field('canvas');
+let field = new Field('canvas', 'score');
 let keyboard = new Keyboard();
 let snake = new Snake();
-
-field.render();
-
+let rabbit = new Rabbit();
 
 function startGame() {
     intervalGameHandler = setInterval(function () {
         try {
             field.clear();
 
-            snake.updateHeadPosition(keyboard.dX, keyboard.dY);
-
+            snake.updateHeadPosition(keyboard, rabbit);
             field.renderSnake(snake.coords);
 
-            console.log('.');
+            if (!rabbit.isRabbitCreated()) {
+                field.updateScore();
+                rabbit.createNew(snake.coords);
+            }
+            field.renderRabbit(rabbit.coords);
 
             // не требуется ли остановить игру?
             if (keyboard.isStopGame) {
@@ -273,4 +327,3 @@ function startGame() {
 function getRandomInteger(min, max) {
     return Math.floor(Math.random() * (max - min) + min);
 }
-
